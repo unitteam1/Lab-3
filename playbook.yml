@@ -1,0 +1,88 @@
+---
+- name: Ansible lab
+  hosts: local
+  gather_facts: true
+
+  vars:
+    packages:
+      - nginx
+      - openjdk-11-jre
+    aptcachetime: 3600
+    app_dir: /opt/sample
+    app_file: service.jar
+    app_port: 8080
+
+  tasks:
+    - name: Install some basic packages defined in variable "packages"
+      become: true
+      apt:
+        name: "{{ packages }}"
+        update_cache: yes
+        cache_valid_time: "{{ aptcachetime }}"
+
+    - name: Enable Nginx service, ensure it is not masked and start it
+      become: true
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: yes
+        masked: no
+
+    - name: Create {{ app_dir }} directory if it does not exist
+      become: true
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ ansible_user_id }}"
+        mode: 755
+
+    - name: Download Java app to {{ app_dir }}/{{ app_file }}
+      ansible.builtin.get_url:
+        url: "https://storage.googleapis.com/devops-practice-files/systemd/ServicesLab-0.0.1.jar"
+        dest: "{{ app_dir }}/{{ app_file }}"
+        owner: "{{ ansible_user_id }}"
+        mode: 644
+
+    - name: Create a Java App Unit
+      become: true
+      notify:
+        - Reload Systemd
+      ansible.builtin.template:
+        src: "app.service.j2"
+        dest: "/etc/systemd/system/sample.service"
+        mode: 644
+        owner: root
+        group: root
+
+    - name: Enable sample.service, ensure it is not masked and start it
+      become: true
+      ansible.builtin.systemd:
+        name: sample
+        state: started
+        enabled: yes
+        masked: no
+
+    - name: Create a Nginx config
+      become: true
+      ansible.builtin.template:
+        src: "nginx.conf.j2"
+        dest: "/etc/nginx/nginx.conf"
+        mode: 644
+        owner: root
+        group: root
+
+    - name: Restart Nginx
+      become: true
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+
+  handlers:
+    - name: Reload Systemd
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: reloaded
+      loop:
+        - sample
+        - nginx
